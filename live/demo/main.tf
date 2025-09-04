@@ -1,86 +1,131 @@
 terraform {
-subnet_name = var.subnet_name
-address_space = "10.1.0.0/16"
-subnet_prefix = "10.1.1.0/24"
-nsg_name = "nsg-apps"
-security_rules = [
-{
-name = "Allow-SSH"
-priority = 100
-direction = "Inbound"
-access = "Allow"
-protocol = "Tcp"
-source_port_range = "*"
-destination_port_range = "22"
-source_address_prefix = "Internet"
-destination_address_prefix = "*"
-},
-{
-name = "Allow-HTTP"
-priority = 200
-direction = "Inbound"
-access = "Allow"
-protocol = "Tcp"
-source_port_range = "*"
-destination_port_range = "80"
-source_address_prefix = "Internet"
-destination_address_prefix = "*"
-}
-]
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.80"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
+    }
+  }
 }
 
-
-# Key Vault
-module "kv" {
-source = "../../modules/keyvault"
-name = "kv-demo-12345"
-location = azurerm_resource_group.this.location
-resource_group_name = azurerm_resource_group.this.name
+provider "azurerm" {
+  features {}
 }
 
-
-# App Service (containerized Python app)
-module "app" {
-source = "../../modules/app_service"
-location = azurerm_resource_group.this.location
-resource_group_name = azurerm_resource_group.this.name
-app_name = var.app_name
-acr_name = var.acr_name
-container_image = var.container_image
-plan_name = "plan-${var.app_name}"
-sku_tier = "Basic"
-sku_size = "B1"
-start_command = null
-extra_app_settings = {
-"RABBITMQ_HOST" = "${module.rabbitmq_private_ip}"
-}
+# -------------------------
+# Resource Group
+# -------------------------
+resource "azurerm_resource_group" "this" {
+  name     = var.resource_group_name
+  location = var.location
 }
 
+# -------------------------
+# Network Module
+# -------------------------
+module "network" {
+  source              = "../../modules/network"
+  name                = "${var.project}-net"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
 
-# RabbitMQ VM (uses generic VM module)
-module "rabbitmq" {
-source = "../../modules/vm"
-name = var.rabbit_vm_name
-location = azurerm_resource_group.this.location
-resource_group_name = azurerm_resource_group.this.name
-vm_size = var.rabbit_vm_size
-admin_username = var.admin_username
-ssh_public_key = var.ssh_public_key
-subnet_id = module.network.subnet_id
-public_ip_id = null
-custom_data = base64encode(file("./cloudinit/rabbitmq-cloudinit.yaml"))
-image_publisher = "Canonical"
-image_offer = "0001-com-ubuntu-server-focal"
-image_sku = "20_04-lts"
+  address_space = ["10.0.0.0/16"]
+
+  subnet_prefixes = {
+    app     = ["10.0.1.0/24"]
+    bastion = ["10.0.2.0/27"]
+  }
 }
 
+# -------------------------
+# Key Vault Module
+# -------------------------
+module "keyvault" {
+  source              = "../../modules/keyvault"
+  name                = "${var.project}-kv"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
+  tenant_id           = var.tenant_id
+}
 
+# Generate a random RabbitMQ password
+resource "random_password" "rabbitmq" {
+  length  = 16
+  special = true
+}
+
+# Store RabbitMQ password in Key Vault
+resource "azurerm_key_vault_secret" "rabbitmq_password" {
+  name         = "rabbitmq-password"
+  value        = random_password.rabbitmq.result
+  key_vault_id = module.keyvault.keyvault_id
+}
+
+# -------------------------
+# RabbitMQ VM Module
+# -------------------------
+module "rabbitmq_vm" {
+  source              = "../../modules/vm"
+  name                = "${var.project}-rabbitmq"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
+  subnet_id           = module.network.subnet_ids["app"]
+  admin_username      = var.admin_username
+  ssh_public_key      = var.ssh_public_key
+  vm_size             = "Standard_B2ms"
+  cloud_init_file     = "${path.module}/cloud-init-rabbitmq.yaml"
+}
+
+# -------------------------
+# App Service Module
+# -------------------------
+module "app_service" {
+  source              = "../../modules/app_service"
+  name                = "${var.project}-app"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
+
+  container_image = var.container_image
+
+  app_settings = {
+    RABBITMQ_HOST     = module.rabbitmq_vm.vm_private_ip
+    RABBITMQ_USER     = "admin"
+    # Use Key Vault reference (App Service can pull this at runtime)
+    RABBITMQ_PASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.rabbitmq_password.id})"
+  }
+}
+
+# -------------------------
+# Bastion Module
+# -------------------------
+module "bastion" {
+  source              = "../../modules/bastion"
+  name                = "${var.project}-bastion"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
+  subnet_id           = module.network.subnet_ids["bastion"]
+}
+
+# -------------------------
 # Outputs
-output "app_default_hostname" {
-value = module.app.app_default_hostname
+# -------------------------
+output "app_service_url" {
+  value = module.app_service.app_service_url
 }
 
+output "rabbitmq_vm_private_ip" {
+  value = module.rabbitmq_vm.vm_private_ip
+}
 
-output "rabbitmq_private_ip" {
-value = module.rabbitmq.private_ip
+output "keyvault_uri" {
+  value = module.keyvault.keyvault_uri
+}
+
+output "bastion_ip" {
+  value = module.bastion.bastion_public_ip
 }
