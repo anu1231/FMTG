@@ -37,8 +37,7 @@ module "network" {
   address_space = ["10.0.0.0/16"]
 
   subnet_prefixes = {
-    app     = ["10.0.1.0/24"]
-    bastion = ["10.0.2.0/27"]
+    app = ["10.0.1.0/24"]
   }
 }
 
@@ -77,8 +76,9 @@ module "rabbitmq_vm" {
   subnet_id           = module.network.subnet_ids["app"]
   admin_username      = var.admin_username
   ssh_public_key      = var.ssh_public_key
-  vm_size             = "Standard_B2ms"
+  vm_size             = "Standard_B1s"    # ✅ free tier eligible
   cloud_init_file     = "${path.module}/cloud-init-rabbitmq.yaml"
+  allowed_ssh_ip      = var.my_ip_address # 🔑 restrict SSH
 }
 
 # -------------------------
@@ -95,20 +95,8 @@ module "app_service" {
   app_settings = {
     RABBITMQ_HOST     = module.rabbitmq_vm.vm_private_ip
     RABBITMQ_USER     = "admin"
-    # Use Key Vault reference (App Service can pull this at runtime)
-    RABBITMQ_PASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.rabbitmq_password.id})"
+    RABBITMQ_PASSWORD = "@Microsoft.KeyVault(SecretUri=${azurerm_key_vault_secret.rabbitmq_password.versionless_id})"
   }
-}
-
-# -------------------------
-# Bastion Module
-# -------------------------
-module "bastion" {
-  source              = "../../modules/bastion"
-  name                = "${var.project}-bastion"
-  location            = var.location
-  resource_group_name = azurerm_resource_group.this.name
-  subnet_id           = module.network.subnet_ids["bastion"]
 }
 
 # -------------------------
@@ -122,10 +110,10 @@ output "rabbitmq_vm_private_ip" {
   value = module.rabbitmq_vm.vm_private_ip
 }
 
-output "keyvault_uri" {
-  value = module.keyvault.keyvault_uri
+output "rabbitmq_vm_public_ip" {
+  value = module.rabbitmq_vm.vm_public_ip
 }
 
-output "bastion_ip" {
-  value = module.bastion.bastion_public_ip
+output "keyvault_uri" {
+  value = module.keyvault.keyvault_uri
 }

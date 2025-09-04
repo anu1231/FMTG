@@ -8,12 +8,12 @@ output "rabbitmq_vm_private_ip" {
   value       = module.rabbitmq_vm.vm_private_ip
 }
 
+output "rabbitmq_vm_public_ip" {
+  description = "Public IP address of the RabbitMQ VM (for SSH and management access)"
+  value       = module.rabbitmq_vm.vm_public_ip
+}
+
 output "keyvault_uri" {
   description = "Key Vault URI where secrets are stored"
   value       = module.keyvault.keyvault_uri
-}
-
-output "bastion_ip" {
-  description = "Public IP address of the Bastion host"
-  value       = module.bastion.bastion_public_ip
 }

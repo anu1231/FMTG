@@ -4,7 +4,7 @@ Message broker: self-hosted RabbitMQ on a VM for maximum compatibility. For prod
 
 Security: Key Vault holds sensitive values. The App Service uses a system-assigned identity to fetch secrets securely if you wire access policies.
 
-Bastion: recommended to avoid public SSH. Add a bastion module to access VMs privately.
+
 
 
 

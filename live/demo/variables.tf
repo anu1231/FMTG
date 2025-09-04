@@ -32,3 +32,8 @@ variable "tenant_id" {
   description = "Azure AD tenant ID for Key Vault"
   type        = string
 }
+
+variable "my_ip_address" {
+  description = "Your public IP address to allow SSH and RabbitMQ management"
+  type        = string
+}

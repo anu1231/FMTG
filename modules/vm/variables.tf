@@ -39,3 +39,9 @@ variable "cloud_init_file" {
   type        = string
   default     = ""
 }
+
+variable "allowed_ssh_ip" {
+  description = "Your public IP to allow SSH and RabbitMQ management access"
+  type        = string
+}
+
