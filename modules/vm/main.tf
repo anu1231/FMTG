@@ -42,7 +42,7 @@ version = "latest"
 }
 
 
-custom_data = var.custom_data
+custom_data = filebase64(var.cloud_init_file)
 tags = var.tags
 }
 
